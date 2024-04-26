@@ -2,7 +2,10 @@ import os
 import subprocess
 import sys
 from tree_sitter import Language
-
+from typing import List
+from os import PathLike, fspath, path
+from tempfile import TemporaryDirectory
+from platform import system
 
 repos = []
 with open("repos.txt", "r") as file:
@@ -38,6 +41,75 @@ if sys.platform == "win32":
     languages_filename = "tree_sitter_languages\\languages.dll"
 else:
     languages_filename = "tree_sitter_languages/languages.so"
+
+def build_library(output_path: str, repo_paths: List[str]) -> bool:
+    """
+    Build a dynamic library at the given path, based on the parser
+    repositories at the given paths.
+
+    Returns `True` if the dynamic library was compiled and `False` if
+    the library already existed and was modified more recently than
+    any of the source files.
+    """
+    output_mtime = path.getmtime(output_path) if path.exists(output_path) else 0
+
+    if not repo_paths:
+        raise ValueError("Must provide at least one language folder")
+
+    cpp = False
+    source_paths = []
+    for repo_path in repo_paths:
+        src_path = path.join(repo_path, "src")
+        source_paths.append(path.join(src_path, "parser.c"))
+        if path.exists(path.join(src_path, "scanner.cc")):
+            cpp = True
+            source_paths.append(path.join(src_path, "scanner.cc"))
+        elif path.exists(path.join(src_path, "scanner.c")):
+            source_paths.append(path.join(src_path, "scanner.c"))
+    source_mtimes = [path.getmtime(__file__)] + [path.getmtime(path_) for path_ in source_paths]
+
+    if max(source_mtimes) <= output_mtime:
+        return False
+
+    # local import saves import time in the common case that nothing is compiled
+    try:
+        from distutils.ccompiler import new_compiler
+        from distutils.unixccompiler import UnixCCompiler
+    except ImportError as err:
+        raise RuntimeError(
+            "Failed to import distutils. You may need to install setuptools."
+        ) from err
+
+    compiler = new_compiler()
+    if isinstance(compiler, UnixCCompiler):
+        compiler.set_executables(compiler_cxx="c++")
+
+    with TemporaryDirectory(suffix="tree_sitter_language") as out_dir:
+        object_paths = []
+        for source_path in source_paths:
+            if system() == "Windows":
+                flags = None
+            else:
+                flags = ["-fPIC"]
+                if source_path.endswith(".c"):
+                    flags.append("-std=c11")
+                else:
+                    flags.append("-std=c++11")
+            object_paths.append(
+                compiler.compile(
+                    [source_path],
+                    output_dir=out_dir,
+                    include_dirs=[path.dirname(source_path)],
+                    extra_preargs=flags,
+                )[0]
+            )
+        compiler.link_shared_object(
+            object_paths,
+            output_path,
+            target_lang="c++" if cpp else "c",
+        )
+    return True
+
 
 print(f"{sys.argv[0]}: Building", languages_filename)
 Language.build_library(
@@ -91,6 +163,7 @@ Language.build_library(
         'vendor/tree-sitter-tsq',
         'vendor/tree-sitter-typescript/tsx',
         'vendor/tree-sitter-typescript/typescript',
+        'vendor/tree-sitter-verilog',
         'vendor/tree-sitter-yaml',
     ]
 )

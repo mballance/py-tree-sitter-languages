@@ -1,6 +1,9 @@
+import os
 import pathlib
 import re
 import setuptools
+import subprocess
+import sys
 
 from Cython.Build import cythonize
 
@@ -10,6 +13,22 @@ version = match.group(1)
 
 with open('README.rst') as reader:
     readme = reader.read()
+
+if sys.platform == "win32":
+    languages_filename = "tree_sitter_languages\\languages.dll"
+else:
+    languages_filename = "tree_sitter_languages/languages.so"
+
+if not os.path.isfile(languages_filename):
+    cmd = [
+        sys.executable,
+        "build.py"
+    ]
+
+    result = subprocess.run(cmd)
+
+    if result.returncode != 0:
+        raise Exception("Failed to build")
 
 setuptools.setup(
     name='tree_sitter_languages',
