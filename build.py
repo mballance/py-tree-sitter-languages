@@ -112,7 +112,7 @@ def build_library(output_path: str, repo_paths: List[str]) -> bool:
 
 
 print(f"{sys.argv[0]}: Building", languages_filename)
-Language.build_library(
+build_library(
     languages_filename,
     [
         'vendor/tree-sitter-bash',
